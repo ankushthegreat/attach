@@ -3,8 +3,12 @@ import requests
 import numpy as np
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+try:
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 from concurrent.futures import ThreadPoolExecutor
 
 st.set_page_config(page_title="Pattern Scanner (MEXC)", layout="wide")
@@ -253,23 +257,28 @@ with t2:
     if sym:
         full = klines(sym, tf)
         df = full.tail(150)
-        ema = full.c.ewm(span=100, adjust=False).mean().tail(150)
-        rs = rsi(full.c).tail(150)
-        avg = full.v.rolling(20).mean().tail(150)
-        fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
-                            row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.03)
-        fig.add_trace(go.Candlestick(x=df.dt, open=df.o, high=df.h, low=df.l, close=df.c,
-                                     name="Price"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.dt, y=ema, name="EMA 100"), row=1, col=1)
-        for n, dash in ((20, "dot"), (30, "dash")):
-            fig.add_trace(go.Scatter(x=df.dt, y=full.h.rolling(n).max().shift(1).tail(150),
-                                     name=f"{n}c high", line=dict(dash=dash, width=1)), row=1, col=1)
-        bub = df.v >= p["vol_mult"] * avg
-        fig.add_trace(go.Bar(x=df.dt, y=df.v, name="Volume",
-                             marker_color=np.where(bub, "orange", "gray")), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df.dt, y=rs, name="RSI"), row=3, col=1)
-        fig.add_hline(y=70, line_dash="dot", row=3, col=1)
-        fig.add_hline(y=30, line_dash="dot", row=3, col=1)
-        fig.update_layout(height=760, xaxis_rangeslider_visible=False, margin=dict(t=20))
-        st.plotly_chart(fig, use_container_width=True)
+        if not HAS_PLOTLY:
+            st.warning("plotly is not installed on the server, so this is a simple price line. "
+                       "Add plotly to requirements.txt for the full chart.")
+            st.line_chart(df.set_index("dt")[["c"]])
+        else:
+            ema = full.c.ewm(span=100, adjust=False).mean().tail(150)
+            rs = rsi(full.c).tail(150)
+            avg = full.v.rolling(20).mean().tail(150)
+            fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
+                                row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.03)
+            fig.add_trace(go.Candlestick(x=df.dt, open=df.o, high=df.h, low=df.l, close=df.c,
+                                         name="Price"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.dt, y=ema, name="EMA 100"), row=1, col=1)
+            for n, dash in ((20, "dot"), (30, "dash")):
+                fig.add_trace(go.Scatter(x=df.dt, y=full.h.rolling(n).max().shift(1).tail(150),
+                                         name=f"{n}c high", line=dict(dash=dash, width=1)), row=1, col=1)
+            bub = df.v >= p["vol_mult"] * avg
+            fig.add_trace(go.Bar(x=df.dt, y=df.v, name="Volume",
+                                 marker_color=np.where(bub, "orange", "gray")), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df.dt, y=rs, name="RSI"), row=3, col=1)
+            fig.add_hline(y=70, line_dash="dot", row=3, col=1)
+            fig.add_hline(y=30, line_dash="dot", row=3, col=1)
+            fig.update_layout(height=760, xaxis_rangeslider_visible=False, margin=dict(t=20))
+            st.plotly_chart(fig, use_container_width=True)
         st.write("Latest signals:", ", ".join(f"{s} ({sd})" for s, sd in detect(full, p)) or "none")
